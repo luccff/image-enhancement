@@ -1,4 +1,3 @@
-#!/home/mult/venv39/bin/python
 import os
 import torch
 from torchvision import transforms
@@ -68,10 +67,8 @@ class MDSR(torch.nn.Module):
         )
 
     def forward(self, x):
-        # Сохраняем оригинальный диапазон значений
         x = x * 255.0
         
-        # Применяем предобработку
         x = self.sub_mean(x)
         x = self.head(x)
         
@@ -83,7 +80,6 @@ class MDSR(torch.nn.Module):
                 x = x + res
                 torch.cuda.empty_cache()
         
-        # Body с пакетной обработкой
         residual = x
         for i, block in enumerate(self.body[:-1]):
             res = x
@@ -95,7 +91,6 @@ class MDSR(torch.nn.Module):
         x = self.body[-1](x)
         x = x + residual
         
-        # Оптимизированный upsample
         main_flow = x
         x = self.upsample[-1](main_flow)
         x = torch.nn.functional.pixel_shuffle(x, 2)
@@ -103,14 +98,12 @@ class MDSR(torch.nn.Module):
         x = self.tail(x)
         x = self.add_mean(x)
         
-        # Возвращаем к нормализованному диапазону [0, 1]
         x = x / 255.0
         return torch.clamp(x, 0, 1)
 
 def load_image(image_path, max_size=1440):
     image = Image.open(image_path).convert('RGB')
     
-    # Ограничение размера входного изображения
     width, height = image.size
     aspect_ratio = width / height
     
@@ -124,25 +117,21 @@ def load_image(image_path, max_size=1440):
     if width != image.size[0] or height != image.size[1]:
         image = image.resize((width, height), Image.LANCZOS)
     
-    # Преобразуем в тензор с сохранением цветового диапазона
     tensor = transforms.ToTensor()(image)
     return tensor.unsqueeze(0)
 
 def save_image(tensor, output_path):
-    # Убеждаемся, что тензор в правильном диапазоне
     tensor = tensor.squeeze(0)
     
-    # Конвертируем в изображение
     if tensor.min() < 0 or tensor.max() > 1:
         tensor = tensor.clamp(0, 1)
     
     image = transforms.ToPILImage()(tensor)
-    image.save(output_path, quality=95)  # Увеличиваем качество сохранения
+    image.save(output_path, quality=95)
     logging.info(f'Изображение успешно сохранено: {output_path}')
 
 def main(input_image_path, output_image_path):
     try:
-        # Освобождаем память CUDA перед началом
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
@@ -164,26 +153,21 @@ def main(input_image_path, output_image_path):
         
         model.eval()
         
-        # Загружаем изображение с ограничением размера
         logging.info("Загрузка входного изображения...")
         input_image = load_image(input_image_path, max_size=4096).to(device)
         
         logging.info("Обработка изображения...")
         with torch.no_grad():
-            # Включаем оптимизацию памяти CUDA
             if device.type == 'cuda':
                 torch.cuda.empty_cache()
                 torch.backends.cudnn.benchmark = True
             
             output_image = model(input_image)
-            
-            # Сразу переносим результат на CPU для освобождения памяти CUDA
             output_image = output_image.cpu()
         
         logging.info("Сохранение результата...")
         save_image(output_image, output_image_path)
         
-        # Финальная очистка памяти
         if device.type == 'cuda':
             torch.cuda.empty_cache()
         
